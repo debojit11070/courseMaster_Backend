@@ -16,7 +16,8 @@ const updateCourse = async (req, res) => {
     const course = await adminService.updateCourse(req.params.id, req.body);
     res.json(course);
   } catch (err) {
-    res.status(404).json({ message: err.message });
+    const isInvalid = err.name === "ValidationError" || err.name === "CastError";
+    res.status(isInvalid ? 400 : 404).json({ message: err.message });
   }
 };
 
@@ -42,7 +43,7 @@ const getEnrollments = async (req, res) => {
 // ✅ NEW: assignments list
 const getAssignments = async (req, res) => {
   try {
-    const data = await adminService.getAssignments();
+    const data = await adminService.getAssignments(req.query);
     res.json(data);
   } catch (err) {
     res.status(400).json({ message: err.message });

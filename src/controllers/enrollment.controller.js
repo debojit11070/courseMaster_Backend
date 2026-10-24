@@ -25,6 +25,7 @@ const myEnrollments = async (req, res) => {
 const completeLesson = async (req, res) => {
   try {
     const data = await enrollmentService.completeLesson(
+      req.user.id,
       req.params.enrollId,
       req.body.lessonId
     );

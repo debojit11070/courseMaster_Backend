@@ -28,11 +28,6 @@ connectDB().catch((err) => {
 const app = express();
 
 app.use(cors());
-// Code-10 bug: custom header restricts allowed methods to GET and POST, breaking PUT/DELETE CORS preflights
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Methods", "GET, POST");
-  next();
-});
 app.use(express.json());
 
 // Middleware to ensure DB connection before handling requests
@@ -42,7 +37,7 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     console.error("Database connection middleware error:", err.message);
-    res.status(500).json({ message: "Database connection failed", error: err.message });
+    res.status(500).json({ message: "Database connection failed" });
   }
 });
 

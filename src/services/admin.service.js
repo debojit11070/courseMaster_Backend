@@ -11,7 +11,10 @@ const createCourse = async (payload) => {
 };
 
 const updateCourse = async (id, payload) => {
-  const course = await Course.findByIdAndUpdate(id, payload, { new: true });
+  const course = await Course.findByIdAndUpdate(id, payload, {
+    new: true,
+    runValidators: true,
+  });
   if (!course) throw new Error("Course not found");
   return course;
 };
@@ -36,10 +39,10 @@ const getEnrollments = async (query) => {
     .sort({ createdAt: -1 });
 };
 
-// ✅ NEW: get all assignment submissions (Code-8 bug: queries by courseId instead of course)
+// ✅ NEW: get all assignment submissions (optionally filtered by course)
 const getAssignments = async (query = {}) => {
   const filter = {};
-  if (query.courseId) filter.courseId = query.courseId; // Mongoose schema has 'course', not 'courseId'
+  if (query.courseId) filter.course = query.courseId;
 
   const submissions = await AssignmentSubmission.find(filter)
     .populate("student", "name email")
@@ -76,13 +79,22 @@ const getAssignments = async (query = {}) => {
 const reviewAssignment = async (id, payload, adminId) => {
   const { reviewNotes, grade, status } = payload;
 
+  if (typeof grade !== "undefined" && grade !== null) {
+    if (typeof grade !== "number" || !Number.isFinite(grade) || grade < 0 || grade > 100) {
+      throw new Error("Grade must be a number between 0 and 100");
+    }
+  }
+
   const update = {};
   if (typeof status !== "undefined") update.status = status;
   if (typeof reviewNotes !== "undefined") update.reviewNotes = reviewNotes;
   if (typeof grade !== "undefined") update.grade = grade;
   if (adminId) update.reviewer = adminId;
 
-  const submission = await AssignmentSubmission.findByIdAndUpdate(id, update, { new: true })
+  const submission = await AssignmentSubmission.findByIdAndUpdate(id, update, {
+    new: true,
+    runValidators: true,
+  })
     .populate("student", "name email")
     .populate("course", "title")
     .populate("reviewer", "name");
@@ -96,8 +108,8 @@ const reviewAssignment = async (id, payload, adminId) => {
 const getAnalytics = async () => {
   // Get enrollments grouped by date (last 30 days)
   const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
+  thirtyDaysAgo.setUTCHours(0, 0, 0, 0);
 
   const enrollments = await Enrollment.find({
     createdAt: { $gte: thirtyDaysAgo }
@@ -114,13 +126,13 @@ const getAnalytics = async () => {
   const chartData = [];
   for (let i = 29; i >= 0; i--) {
     const date = new Date();
-    date.setDate(date.getDate() - i);
-    date.setHours(0, 0, 0, 0);
+    date.setUTCDate(date.getUTCDate() - i);
+    date.setUTCHours(0, 0, 0, 0);
     const dateStr = date.toISOString().split('T')[0];
 
     // Format date for display (e.g., "Jan 15")
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const displayDate = `${monthNames[date.getMonth()]} ${date.getDate()}`;
+    const displayDate = `${monthNames[date.getUTCMonth()]} ${date.getUTCDate()}`;
 
     chartData.push({
       date: dateStr,

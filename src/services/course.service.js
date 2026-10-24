@@ -2,6 +2,8 @@
 
 const Course = require("../models/Course");
 
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const getCourses = async (query) => {
   const {
     page = 1,
@@ -19,9 +21,10 @@ const getCourses = async (query) => {
   const filter = {};
 
   if (search && typeof search === "string") {
+    const pattern = escapeRegex(search);
     filter.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { instructorName: { $regex: search, $options: "i" } },
+      { title: { $regex: pattern, $options: "i" } },
+      { instructorName: { $regex: pattern, $options: "i" } },
     ];
   }
 
