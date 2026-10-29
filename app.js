@@ -29,6 +29,11 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+// Express 5 leaves req.body undefined when a request has no body
+app.use((req, res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 // Middleware to ensure DB connection before handling requests
 app.use(async (req, res, next) => {
