@@ -33,7 +33,7 @@ const courseSchema = new Schema(
     title: { type: String, required: true, index: true },
     description: { type: String, required: true },
     instructorName: { type: String, required: true, index: true },
-    price: { type: Number, required: true },
+    price: { type: Number, required: true, min: 0 },
     category: { type: String, index: true },
     tags: [{ type: String, index: true }],
     syllabus: [moduleSchema],

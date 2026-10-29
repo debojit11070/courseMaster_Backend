@@ -103,8 +103,10 @@ const short = (r) => `${r.status} ${JSON.stringify(r.body).slice(0, 160)}`;
   out("BE-014 search='.*' total", (await A.get("/api/courses?search=" + encodeURIComponent(".*"))).body.total);
 
   await A.patch(`/api/users/${stu2._id}/ban`).set(H(adminTok));
+  out("BE-011 banned user's existing token on GET /me", short(await A.get("/api/auth/me").set(H(stu2Tok))));
   out("BE-011 banned user login", short(await A.post("/api/auth/login").send({ email: "s2@x.com", password: "secret1" })));
 
+  out("BE-013 course price=-5 (create)", short(await A.post("/api/admin/courses").set(H(adminTok)).send({ title: "Neg", description: "d", instructorName: "i", price: -5 })));
   const an = await A.get("/api/admin/analytics").set(H(adminTok));
   await Enrollment.create({ student: stu2._id, course: course2._id });
   const an2 = await A.get("/api/admin/analytics").set(H(adminTok));

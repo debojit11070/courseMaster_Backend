@@ -10,7 +10,8 @@ Scope: backend only (Node.js / Express 5 / MongoDB / Mongoose). Frontend bugs ar
 |-----|---------|
 | `dee9a5f` | **Original code** (with the injected challenges). All "Observed on original" results come from here. |
 | `56f7268` | Fix commit (the source fixes). |
-| `272ee4a` (`main`) | Adds `tests/api.test.js`, the `npm test` script and the first version of this report. All "Observed on fixed" results come from here. |
+| `272ee4a` | Adds `tests/api.test.js`, the `npm test` script and the first version of this report. |
+| `main` (latest) | Adds the report rewrite, `tests/repro-probe.js`, the auth-middleware lookup (BE-011) and `price min: 0` (BE-013). All "Observed on fixed" results come from here. |
 
 **Setup used for every reproduction:** an in-memory MongoDB, `JWT_SECRET=s`, `ADMIN_REGISTRATION_KEY=adminkey`, an admin
 (`admin@x.com` / `admin123`), a student (`s@x.com` / `secret1`), one course with a 3-question quiz. For a real server, run
@@ -50,9 +51,9 @@ npm test                                                      # 15 regression te
 | BE-008 | Admin assignments `courseId` filter ignored | Medium | P2 | Reproduced + verified |
 | BE-009 | `Authorization` accepted without the `Bearer ` scheme | Medium | P2 | Reproduced + verified |
 | BE-010 | Validation errors have no `errors` details (Zod 4) | Medium | P2 | Reproduced + verified |
-| BE-011 | Banned users are never blocked | High | P1 | Verified (partial) |
+| BE-011 | Banned users are never blocked (login and existing tokens) | High | P1 | Verified (partial) |
 | BE-012 | Lesson completion not scoped to owner / course | High | P1 | Reproduced + verified |
-| BE-013 | Update endpoints skip schema validation | Medium | P2 | Verified (partial) |
+| BE-013 | Update endpoints skip schema validation; negative price accepted | Medium | P2 | Reproduced + verified |
 | BE-014 | Course search builds a regex from raw input | Low | P3 | Verified (partial) |
 | BE-015 | Analytics day buckets off by one on non-UTC servers | Low | P3 | Reproduced + verified |
 | BE-016 | `.env.example` contains frontend variables | Low | P3 | Review only |
@@ -166,10 +167,15 @@ workaround; Low = minor. Priority: P0 fix now … P3 when convenient.
 - **Expected:** login refused ("Your account has been banned").
 - **Evidence on original:** `git grep isBanned dee9a5f -- src` shows it only in the model and in the toggle in `user.service.js` — it is never read.
   The end-to-end symptom could not be observed on the original alone, because BE-001 rejects every login (the probe got `400 Invalid email or password`).
-- **Observed on fixed:** banned user → `400 "Your account has been banned"`; after un-ban → 200.
-- **Limitation:** tokens issued before the ban stay valid until they expire (30 days); enforcing that needs a database lookup per request.
-- **Fix:** login rejects banned users.
-- **Status:** Verified (partial) — fix and test (*BE-011 user management…*) confirmed; the original symptom is only demonstrable once BE-001 is fixed.
+- **Second symptom (existing tokens):** a token issued before the ban kept working for its full 30-day life. **Observed on original:** `GET /api/auth/me` with a banned
+  user's token → `200` (user shown with `isBanned:true`). The same applied to deleted users and to role changes (a demoted admin kept admin rights in the token).
+- **Observed on fixed:** login → `400 "Your account has been banned"`; an existing token → `403 "Your account has been banned"`; after un-ban both work again.
+- **Fix:** login rejects banned users, and `authMiddleware` (`src/middlewares/authMiddleware.js`) now looks the user up on every request: a deleted user gets
+  `401 Invalid token`, a banned user gets `403`, and `req.user.role` comes from the database rather than the token (so promotions and demotions apply immediately).
+  Cost: one indexed `findById` per authenticated request.
+- **Frontend note:** a banned user's next API call now returns `403 "Your account has been banned"`; the frontend's interceptor only auto-logs-out on 401.
+- **Status:** Verified (partial) — fix and test (*BE-011 user management…*: ban, token rejected, un-ban, promotion, deletion) confirmed; the *login* symptom is only
+  demonstrable on the original once BE-001 is fixed. The existing-token symptom is reproduced.
 
 ## BE-012 — Lesson completion not scoped to owner / course
 - **Files:** `enrollment.service.js:38-46`, `enrollment.controller.js` · **Severity / Priority:** High / P1
@@ -182,13 +188,12 @@ workaround; Low = minor. Priority: P0 fix now … P3 when convenient.
 
 ## BE-013 — Update endpoints skip schema validation
 - **File:** `src/services/admin.service.js:14-17, 80-98` · **Severity / Priority:** Medium / P2
-- **Steps:** (a) `PATCH /api/admin/assignments/:id/review` `{"status":"banana"}`; (b) `{"grade":500}`; (c) `PATCH /api/admin/courses/:id` `{"title":""}`; (d) `{"price":"abc"}`.
-- **Expected:** 400 for all four.
-- **Observed on original:** (a) `200`, stored `status:"banana"`; (b) `200`, stored `grade:500`; (c) `200`, course title became `""`; (d) `404 "Cast to Number failed…"` (rejected, but with the wrong status).
-- **Observed on fixed:** (a) `400` (enum), (b) `400 "Grade must be a number between 0 and 100"`, (c) `400 "Path title is required"`, (d) `400`.
-- **Fix:** `runValidators: true` on both updates; grade bounds; validation/cast errors on course update map to 400.
-- **Not fixed (open):** a negative price (`{"price":-5}`) is still accepted (`200`) because the schema has no `min`. Add `min: 0` to `Course.price` if wanted.
-- **Status:** Verified (partial) — (a)–(d) reproduced and fixed with tests; the negative-price gap remains.
+- **Steps:** (a) `PATCH /api/admin/assignments/:id/review` `{"status":"banana"}`; (b) `{"grade":500}`; (c) `PATCH /api/admin/courses/:id` `{"title":""}`; (d) `{"price":"abc"}`; (e) `{"price":-5}` (also on `POST /api/admin/courses`).
+- **Expected:** 400 for all five.
+- **Observed on original:** (a) `200`, stored `status:"banana"`; (b) `200`, stored `grade:500`; (c) `200`, course title became `""`; (d) `404 "Cast to Number failed…"` (rejected, but with the wrong status); (e) `200`/`201`, a course with price `-5` was stored.
+- **Observed on fixed:** (a) `400` (enum), (b) `400 "Grade must be a number between 0 and 100"`, (c) `400 "Path title is required"`, (d) `400`, (e) `400 "price … is less than minimum allowed value (0)"`.
+- **Fix:** `runValidators: true` on both updates; grade bounds; validation/cast errors on course update map to 400; `min: 0` on `Course.price` (`src/models/Course.js:36`).
+- **Status:** Reproduced + verified — test *BE-013 admin course CRUD…* (invalid price on update and create) and *assignments + BE-008/BE-013…*.
 
 ## BE-014 — Course search builds a regex from raw input
 - **File:** `src/services/course.service.js:5,24` · **Severity / Priority:** Low / P3
@@ -234,7 +239,7 @@ workaround; Low = minor. Priority: P0 fix now … P3 when convenient.
 
 ## Test and regression evidence
 
-`npm test` → **15 tests, 102 assertions, all passing** (Node test runner + supertest + in-memory MongoDB; no `.env` needed). Also passes under `TZ=Asia/Dhaka`.
+`npm test` → **15 tests, 110 assertions, all passing** (Node test runner + supertest + in-memory MongoDB; no `.env` needed). Also passes under `TZ=Asia/Dhaka`.
 Covered: auth (login, register, `/me`, 401 handling), Zod validation details, role-based access (403), enrollment, complete-lesson ownership,
 quiz scoring and stats, assignment submit/review/stats, admin course CRUD with invalid input, user ban/role/delete with self-action guards,
 course list/pagination/sort/search/detail/404, analytics.
@@ -243,10 +248,9 @@ course list/pagination/sort/search/detail/404, analytics.
 several tests fail early because of BE-001 or BE-004 rather than because of the bug in their name. The per-bug before/after evidence is therefore the
 **probe output** in each entry (`tests/repro-probe.js`), which seeds users and tokens directly and isolates each bug.
 
-**Not covered by any automated test:** BE-016, BE-017; the race in BE-006 (checked on the next read only); a database outage; token revocation after a ban.
+**Not covered by any automated test:** BE-016, BE-017; the race in BE-006 (checked on the next read only); a database outage; a database error inside the auth middleware (it forwards to the error handler).
 
 ## Known remaining items
-- Negative course price is accepted (BE-013).
-- Tokens issued before a ban stay valid until they expire (BE-011).
+- None of the previously open items remain. The two that were open (negative price, tokens surviving a ban) were fixed in BE-013 and BE-011.
 - Quiz retakes are intentionally allowed (existing design choice, not changed).
 - No screenshots/recordings: all bugs are API-level, evidenced by the request/response pairs above.

@@ -313,6 +313,8 @@ test("BE-013 admin course CRUD with validation", async () => {
   const id = res.body._id;
 
   assert.equal((await api.patch(`/api/admin/courses/${id}`).set(admin).send({ price: "abc" })).status, 400);
+  assert.equal((await api.patch(`/api/admin/courses/${id}`).set(admin).send({ price: -5 })).status, 400, "negative price");
+  assert.equal((await api.post("/api/admin/courses").set(admin).send({ title: "Neg", description: "d", instructorName: "i", price: -1 })).status, 400);
   res = await api.patch(`/api/admin/courses/${id}`).set(admin).send({ price: 99 });
   assert.equal(res.status, 200);
   assert.equal(res.body.price, 99);
@@ -329,6 +331,10 @@ test("BE-011 user management: ban blocks login, role change, self-action guards,
 
   let res = await api.patch(`/api/users/${ctx.s2Id}/ban`).set(admin);
   assert.equal(res.body.isBanned, true);
+  // an already-issued token stops working immediately
+  res = await api.get("/api/auth/me").set(auth(ctx.s2));
+  assert.equal(res.status, 403);
+  assert.match(res.body.message, /banned/i);
   res = await api.post("/api/auth/login").send({ email: "s2@test.com", password: "secret1" });
   assert.equal(res.status, 400);
   assert.match(res.body.message, /banned/i);
@@ -336,16 +342,20 @@ test("BE-011 user management: ban blocks login, role change, self-action guards,
   await api.patch(`/api/users/${ctx.s2Id}/ban`).set(admin);
   res = await api.post("/api/auth/login").send({ email: "s2@test.com", password: "secret1" });
   assert.equal(res.status, 200);
+  assert.equal((await api.get("/api/auth/me").set(auth(ctx.s2))).status, 200, "token works again after un-ban");
 
   assert.equal((await api.patch(`/api/users/${ctx.s2Id}/role`).set(admin).send({ role: "root" })).status, 400);
+  assert.equal((await api.get("/api/users").set(auth(ctx.s2))).status, 403, "student token cannot list users");
   res = await api.patch(`/api/users/${ctx.s2Id}/role`).set(admin).send({ role: "admin" });
   assert.equal(res.body.role, "admin");
+  assert.equal((await api.get("/api/users").set(auth(ctx.s2))).status, 200, "promotion applies to the old token");
 
   assert.equal((await api.delete(`/api/users/${ctx.adminId}`).set(admin)).status, 400);
   assert.equal((await api.patch(`/api/users/${ctx.adminId}/ban`).set(admin)).status, 400);
   assert.equal((await api.patch(`/api/users/${ctx.adminId}/role`).set(admin).send({ role: "student" })).status, 400);
 
   assert.equal((await api.delete(`/api/users/${ctx.s2Id}`).set(admin)).status, 200);
+  assert.equal((await api.get("/api/auth/me").set(auth(ctx.s2))).status, 401, "token of a deleted user is rejected");
   assert.equal((await api.delete(`/api/users/${ctx.s2Id}`).set(admin)).status, 400);
 });
 
